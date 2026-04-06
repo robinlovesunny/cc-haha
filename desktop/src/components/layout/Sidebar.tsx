@@ -1,10 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
+import { ProjectFilter } from './ProjectFilter'
 import type { SessionListItem } from '../../types/session'
 
+type TimeGroup = 'Today' | 'Yesterday' | 'Last 7 days' | 'Last 30 days' | 'Older'
+
+const TIME_GROUP_ORDER: TimeGroup[] = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Older']
+
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, fetchSessions, deleteSession, renameSession } = useSessionStore()
+  const { sessions, activeSessionId, selectedProjects, setActiveSession, fetchSessions, deleteSession, renameSession } = useSessionStore()
   const { activeView, setActiveView } = useUIStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -23,35 +28,21 @@ export function Sidebar() {
     return () => document.removeEventListener('click', close)
   }, [contextMenu])
 
-  // Filter sessions by search query — already sorted by modifiedAt from API
-  const filteredSessions = searchQuery
-    ? sessions.filter((s) => s.title.toLowerCase().includes(searchQuery.toLowerCase()))
-    : sessions
+  // Filter by selected projects, then by search query
+  const filteredSessions = useMemo(() => {
+    let result = sessions
+    if (selectedProjects.length > 0) {
+      result = result.filter((s) => selectedProjects.includes(s.projectPath))
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter((s) => s.title.toLowerCase().includes(q))
+    }
+    return result
+  }, [sessions, selectedProjects, searchQuery])
 
-  // Group filtered sessions by projectPath, sorted by most recent session per group
-  const groupedSessions = useMemo(() => {
-    const groups = new Map<string, SessionListItem[]>()
-    for (const session of filteredSessions) {
-      const key = session.projectPath || '_unknown'
-      if (!groups.has(key)) groups.set(key, [])
-      groups.get(key)!.push(session)
-    }
-    // Sort sessions within each group by most recent first
-    for (const list of groups.values()) {
-      list.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime())
-    }
-    // Sort groups by their most recent session
-    const sorted = [...groups.entries()].sort((a, b) => {
-      const aLatest = new Date(a[1][0]?.modifiedAt ?? 0).getTime()
-      const bLatest = new Date(b[1][0]?.modifiedAt ?? 0).getTime()
-      return bLatest - aLatest
-    })
-    return sorted.map(([path, items]) => ({
-      projectPath: path,
-      displayName: getProjectDisplayName(path),
-      sessions: items,
-    }))
-  }, [filteredSessions])
+  // Group by time
+  const timeGroups = useMemo(() => groupByTime(filteredSessions), [filteredSessions])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
@@ -97,6 +88,11 @@ export function Sidebar() {
         </NavItem>
       </div>
 
+      {/* Project filter */}
+      <div className="px-3 pb-1 flex items-center justify-between">
+        <ProjectFilter />
+      </div>
+
       {/* Search */}
       <div className="px-3 pb-2">
         <input
@@ -109,68 +105,70 @@ export function Sidebar() {
         />
       </div>
 
-      {/* Session list — grouped by project directory */}
+      {/* Session list — grouped by time */}
       <div className="flex-1 overflow-y-auto px-3">
         {filteredSessions.length === 0 && (
           <div className="px-3 py-4 text-xs text-[var(--color-text-tertiary)] text-center">
             {searchQuery ? 'No matching sessions' : 'No sessions yet'}
           </div>
         )}
-        {groupedSessions.map((group) => (
-          <div key={group.projectPath} className="mb-1">
-            {/* Project group header */}
-            <div className="px-2 pt-3 pb-1 text-[11px] font-semibold text-[var(--color-text-tertiary)] tracking-wide truncate">
-              {group.displayName}
-            </div>
-            {/* Sessions in this group */}
-            {group.sessions.map((session) => (
-              <div key={session.id} className="relative">
-                {renamingId === session.id ? (
-                  <input
-                    autoFocus
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onBlur={handleFinishRename}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleFinishRename()
-                      if (e.key === 'Escape') { setRenamingId(null); setRenameValue('') }
-                    }}
-                    className="w-full px-3 py-2 text-sm rounded-[var(--radius-md)] border border-[var(--color-border-focus)] bg-[var(--color-surface)] text-[var(--color-text-primary)] outline-none ml-1"
-                  />
-                ) : (
-                  <button
-                    onClick={() => { setActiveView('code'); setActiveSession(session.id) }}
-                    onContextMenu={(e) => handleContextMenu(e, session.id)}
-                    className={`
-                      w-full flex items-center gap-2 pl-4 pr-3 py-1.5 text-sm text-left rounded-[var(--radius-md)] transition-colors duration-200 group
-                      ${session.id === activeSessionId
-                        ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
-                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                      }
-                    `}
-                  >
-                    <span className="w-1 h-1 rounded-full flex-shrink-0" style={{
-                      backgroundColor: session.id === activeSessionId ? 'var(--color-brand)' : 'var(--color-text-tertiary)',
-                      opacity: session.id === activeSessionId ? 1 : 0.5,
-                    }} />
-                    <span className="truncate flex-1">{session.title || 'Untitled'}</span>
-                    {!session.workDirExists && (
-                      <span
-                        className="text-[10px] text-[var(--color-warning)] flex-shrink-0"
-                        title={session.workDir ?? 'Missing workspace'}
-                      >
-                        missing dir
-                      </span>
-                    )}
-                    <span className="text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {formatRelativeTime(session.modifiedAt)}
-                    </span>
-                  </button>
-                )}
+        {TIME_GROUP_ORDER.map((group) => {
+          const items = timeGroups.get(group)
+          if (!items || items.length === 0) return null
+          return (
+            <div key={group} className="mb-1">
+              <div className="px-2 pt-3 pb-1 text-[11px] font-semibold text-[var(--color-text-tertiary)] tracking-wide">
+                {group}
               </div>
-            ))}
-          </div>
-        ))}
+              {items.map((session) => (
+                <div key={session.id} className="relative">
+                  {renamingId === session.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={handleFinishRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleFinishRename()
+                        if (e.key === 'Escape') { setRenamingId(null); setRenameValue('') }
+                      }}
+                      className="w-full px-3 py-2 text-sm rounded-[var(--radius-md)] border border-[var(--color-border-focus)] bg-[var(--color-surface)] text-[var(--color-text-primary)] outline-none ml-1"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setActiveView('code'); setActiveSession(session.id) }}
+                      onContextMenu={(e) => handleContextMenu(e, session.id)}
+                      className={`
+                        w-full flex items-center gap-2 pl-4 pr-3 py-1.5 text-sm text-left rounded-[var(--radius-md)] transition-colors duration-200 group
+                        ${session.id === activeSessionId
+                          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
+                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+                        }
+                      `}
+                    >
+                      <span className="w-1 h-1 rounded-full flex-shrink-0" style={{
+                        backgroundColor: session.id === activeSessionId ? 'var(--color-brand)' : 'var(--color-text-tertiary)',
+                        opacity: session.id === activeSessionId ? 1 : 0.5,
+                      }} />
+                      <span className="truncate flex-1">{session.title || 'Untitled'}</span>
+                      {!session.workDirExists && (
+                        <span
+                          className="text-[10px] text-[var(--color-warning)] flex-shrink-0"
+                          title={session.workDir ?? 'Missing workspace'}
+                        >
+                          missing dir
+                        </span>
+                      )}
+                      <span className="text-[10px] text-[var(--color-text-tertiary)] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {formatRelativeTime(session.modifiedAt)}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })}
       </div>
 
       {/* Settings button at bottom */}
@@ -211,19 +209,28 @@ export function Sidebar() {
   )
 }
 
-/**
- * Extract a human-readable project name from a sanitized project path.
- * Paths look like: "-Users-nanmi-workspace-myself-code-claude-code-haha"
- * We desanitize by treating leading `-` as `/`, then splitting on `-` to
- * get path segments. The last non-empty segment is the project name.
- * This is intentionally simple and lossy (original hyphens vs separators
- * are indistinguishable), but good enough for display.
- */
-function getProjectDisplayName(sanitizedPath: string): string {
-  if (!sanitizedPath || sanitizedPath === '_unknown') return 'Other'
-  // Take the last `-` delimited segment as the display name
-  const segments = sanitizedPath.split('-').filter(Boolean)
-  return segments[segments.length - 1] || 'Other'
+function groupByTime(sessions: SessionListItem[]): Map<TimeGroup, SessionListItem[]> {
+  const groups = new Map<TimeGroup, SessionListItem[]>()
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 86400000
+  const sevenDaysAgo = startOfToday - 7 * 86400000
+  const thirtyDaysAgo = startOfToday - 30 * 86400000
+
+  for (const session of sessions) {
+    const ts = new Date(session.modifiedAt).getTime()
+    let group: TimeGroup
+    if (ts >= startOfToday) group = 'Today'
+    else if (ts >= startOfYesterday) group = 'Yesterday'
+    else if (ts >= sevenDaysAgo) group = 'Last 7 days'
+    else if (ts >= thirtyDaysAgo) group = 'Last 30 days'
+    else group = 'Older'
+
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group)!.push(session)
+  }
+
+  return groups
 }
 
 function NavItem({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {

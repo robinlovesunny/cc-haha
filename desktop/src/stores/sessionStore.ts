@@ -7,12 +7,15 @@ type SessionStore = {
   activeSessionId: string | null
   isLoading: boolean
   error: string | null
+  selectedProjects: string[]
+  availableProjects: string[]
 
   fetchSessions: (project?: string) => Promise<void>
   createSession: (workDir?: string) => Promise<string>
   deleteSession: (id: string) => Promise<void>
   renameSession: (id: string, title: string) => Promise<void>
   setActiveSession: (id: string | null) => void
+  setSelectedProjects: (projects: string[]) => void
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -20,12 +23,24 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   activeSessionId: null,
   isLoading: false,
   error: null,
+  selectedProjects: [],
+  availableProjects: [],
 
   fetchSessions: async (project?: string) => {
     set({ isLoading: true, error: null })
     try {
-      const { sessions } = await sessionsApi.list({ project, limit: 100 })
-      set({ sessions, isLoading: false })
+      const { sessions: raw } = await sessionsApi.list({ project, limit: 100 })
+      // Deduplicate by session ID — keep the most recently modified entry
+      const byId = new Map<string, SessionListItem>()
+      for (const s of raw) {
+        const existing = byId.get(s.id)
+        if (!existing || new Date(s.modifiedAt) > new Date(existing.modifiedAt)) {
+          byId.set(s.id, s)
+        }
+      }
+      const sessions = [...byId.values()]
+      const availableProjects = [...new Set(sessions.map((s) => s.projectPath).filter(Boolean))].sort()
+      set({ sessions, availableProjects, isLoading: false })
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false })
     }
@@ -57,4 +72,5 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setActiveSession: (id) => set({ activeSessionId: id }),
+  setSelectedProjects: (projects) => set({ selectedProjects: projects }),
 }))
