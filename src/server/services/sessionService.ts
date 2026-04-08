@@ -202,7 +202,7 @@ export class SessionService {
   // --------------------------------------------------------------------------
 
   private extractTitle(entries: RawEntry[]): string {
-    // 1. Look for custom title entry (appended by renameSession)
+    // 1. Look for custom title entry (appended by renameSession) — highest priority
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!
       if (e.type === 'custom-title' && e.customTitle) {
@@ -210,7 +210,15 @@ export class SessionService {
       }
     }
 
-    // 2. Look for first non-meta user message as title
+    // 2. Look for AI-generated title (written by titleService)
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]!
+      if (e.type === 'ai-title' && e.aiTitle) {
+        return e.aiTitle as string
+      }
+    }
+
+    // 3. Look for first non-meta user message as title
     for (const e of entries) {
       if (e.type === 'user' && !e.isMeta && e.message?.role === 'user') {
         const content = e.message.content
@@ -218,7 +226,6 @@ export class SessionService {
         if (typeof content === 'string') {
           text = content
         } else if (Array.isArray(content)) {
-          // Extract text from content blocks: [{ type: 'text', text: '...' }]
           const textBlock = content.find(
             (block: Record<string, unknown>) => block.type === 'text' && typeof block.text === 'string'
           )
@@ -547,6 +554,20 @@ export class SessionService {
     }
 
     await this.appendJsonlEntry(found.filePath, entry)
+  }
+
+  /**
+   * Append an AI-generated title entry to a session's JSONL file.
+   */
+  async appendAiTitle(sessionId: string, title: string): Promise<void> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) return
+
+    await this.appendJsonlEntry(found.filePath, {
+      type: 'ai-title',
+      aiTitle: title,
+      timestamp: new Date().toISOString(),
+    })
   }
 
   /**

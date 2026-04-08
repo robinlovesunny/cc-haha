@@ -14,6 +14,7 @@ type SessionStore = {
   createSession: (workDir?: string) => Promise<string>
   deleteSession: (id: string) => Promise<void>
   renameSession: (id: string, title: string) => Promise<void>
+  updateSessionTitle: (id: string, title: string) => void
   setActiveSession: (id: string | null) => void
   setSelectedProjects: (projects: string[]) => void
 }
@@ -64,6 +65,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   renameSession: async (id: string, title: string) => {
     await sessionsApi.rename(id, title)
+    set((s) => ({
+      sessions: s.sessions.map((session) =>
+        session.id === id ? { ...session, title } : session,
+      ),
+    }))
+  },
+
+  updateSessionTitle: (id, title) => {
     set((s) => ({
       sessions: s.sessions.map((session) =>
         session.id === id ? { ...session, title } : session,

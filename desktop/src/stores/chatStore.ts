@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { wsManager } from '../api/websocket'
 import { sessionsApi } from '../api/sessions'
 import { useTeamStore } from './teamStore'
+import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
 import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import type { MessageEntry } from '../types/session'
@@ -437,6 +438,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
 
       case 'task_update':
+        break
+
+      case 'session_title_updated':
+        useSessionStore.getState().updateSessionTitle(msg.sessionId, msg.title)
         break
 
       case 'system_notification':

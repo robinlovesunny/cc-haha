@@ -15,6 +15,7 @@ import {
 import { sessionService } from '../services/sessionService.js'
 import { SettingsService } from '../services/settingsService.js'
 import { ProviderService } from '../services/providerService.js'
+import { deriveTitle, generateTitle, saveAiTitle } from '../services/titleService.js'
 
 const settingsService = new SettingsService()
 const providerService = new ProviderService()
@@ -23,6 +24,16 @@ const providerService = new ProviderService()
  * Cache slash commands from CLI init messages, keyed by sessionId.
  */
 const sessionSlashCommands = new Map<string, Array<{ name: string; description: string }>>()
+
+/**
+ * Track user message count and title state per session for auto-title generation.
+ */
+const sessionTitleState = new Map<string, {
+  userMessageCount: number
+  hasCustomTitle: boolean
+  firstUserMessage: string
+  allUserMessages: string[]
+}>()
 
 export function getSlashCommands(sessionId: string): Array<{ name: string; description: string }> {
   return sessionSlashCommands.get(sessionId) || []
@@ -120,6 +131,7 @@ export const handleWebSocket = {
     activeSessions.delete(sessionId)
     cleanupStreamState(sessionId)
     sessionSlashCommands.delete(sessionId)
+    sessionTitleState.delete(sessionId)
 
     // NOTE: Do NOT stop CLI subprocess on WS disconnect.
     // The CLI process should stay alive so reconnecting reuses it.
@@ -177,6 +189,18 @@ async function handleUserMessage(
     }
   }
 
+  // Track user message for title generation
+  let titleState = sessionTitleState.get(sessionId)
+  if (!titleState) {
+    titleState = { userMessageCount: 0, hasCustomTitle: false, firstUserMessage: '', allUserMessages: [] }
+    sessionTitleState.set(sessionId, titleState)
+  }
+  titleState.userMessageCount++
+  titleState.allUserMessages.push(message.content)
+  if (titleState.userMessageCount === 1) {
+    titleState.firstUserMessage = message.content
+  }
+
   // (Re-)register output callback — WS object may have changed on reconnect.
   // Clear old callbacks and set the current one for this WS connection.
   conversationService.clearOutputCallbacks(sessionId)
@@ -184,6 +208,10 @@ async function handleUserMessage(
     const serverMsgs = translateCliMessage(cliMsg, sessionId)
     for (const msg of serverMsgs) {
       sendMessage(ws, msg)
+    }
+    // Trigger title generation on message_complete
+    if (cliMsg.type === 'result') {
+      triggerTitleGeneration(ws, sessionId)
     }
   })
 
@@ -238,6 +266,47 @@ function handleStopGeneration(ws: ServerWebSocket<WebSocketData>) {
   }
 
   sendMessage(ws, { type: 'status', state: 'idle' })
+}
+
+// ============================================================================
+// Title generation
+// ============================================================================
+
+function triggerTitleGeneration(ws: ServerWebSocket<WebSocketData>, sessionId: string): void {
+  const state = sessionTitleState.get(sessionId)
+  if (!state || state.hasCustomTitle) return
+
+  const count = state.userMessageCount
+
+  // Generate on count 1 (first response) and count 3 (with more context)
+  if (count !== 1 && count !== 3) return
+
+  const text = count === 1
+    ? state.firstUserMessage
+    : state.allUserMessages.join('\n')
+
+  // Fire-and-forget: derive quick title, then upgrade with AI
+  void (async () => {
+    try {
+      // Stage 1: quick placeholder (only on first message)
+      if (count === 1) {
+        const placeholder = deriveTitle(text)
+        if (placeholder) {
+          await saveAiTitle(sessionId, placeholder)
+          sendMessage(ws, { type: 'session_title_updated', sessionId, title: placeholder })
+        }
+      }
+
+      // Stage 2: AI-generated title
+      const aiTitle = await generateTitle(text)
+      if (aiTitle) {
+        await saveAiTitle(sessionId, aiTitle)
+        sendMessage(ws, { type: 'session_title_updated', sessionId, title: aiTitle })
+      }
+    } catch (err) {
+      console.error(`[Title] Failed to generate title for ${sessionId}:`, err)
+    }
+  })()
 }
 
 // ============================================================================
