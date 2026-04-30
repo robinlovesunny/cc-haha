@@ -130,7 +130,8 @@ function getVersion(): string {
  * 如果目录不存在，返回空数组。
  */
 async function discoverProjects(configDir: string): Promise<string[]> {
-  const projectsDir = path.join(configDir, 'projects')
+  const projectsDir =
+    process.env.CC_HAHA_PROJECTS_DIR || path.join(configDir, 'projects')
   try {
     const entries = await fs.readdir(projectsDir)
     return entries.filter((e) => !e.startsWith('.'))

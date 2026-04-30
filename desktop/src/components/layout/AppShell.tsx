@@ -4,7 +4,6 @@ import { ContentRouter } from './ContentRouter'
 import { ToastContainer } from '../shared/Toast'
 import { UpdateChecker } from '../shared/UpdateChecker'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import { initializeDesktopServerUrl } from '../../lib/desktopRuntime'
 import { TabBar } from './TabBar'
@@ -50,16 +49,12 @@ export function AppShell() {
     }
   }, [fetchSettings])
 
-  // Listen for macOS native menu navigation events (About / Settings)
+  // Listen for macOS native menu navigation events
   useEffect(() => {
     let unlisten: (() => void) | undefined
     import(/* @vite-ignore */ '@tauri-apps/api/event')
       .then(({ listen }) =>
-        listen<string>('native-menu-navigate', (event) => {
-          const target = event.payload as SettingsTab | 'settings'
-          if (target === 'about') {
-            useUIStore.getState().setPendingSettingsTab('about')
-          }
+        listen<string>('native-menu-navigate', () => {
           useTabStore.getState().openTab(SETTINGS_TAB_ID, 'Settings', 'settings')
         }),
       )

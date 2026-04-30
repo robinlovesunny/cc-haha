@@ -89,6 +89,8 @@ export class TeamService {
   }
 
   private getProjectsDir(): string {
+    const isolatedProjectsDir = process.env.CC_HAHA_PROJECTS_DIR
+    if (isolatedProjectsDir) return isolatedProjectsDir
     return path.join(this.getConfigDir(), 'projects')
   }
 

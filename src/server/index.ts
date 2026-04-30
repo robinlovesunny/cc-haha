@@ -14,6 +14,8 @@ import { cronScheduler } from './services/cronScheduler.js'
 import { handleProxyRequest } from './proxy/handler.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
 function readArgValue(flag: string): string | undefined {
   const args = process.argv.slice(2)
@@ -43,6 +45,14 @@ function resolveServerOptions() {
 const SERVER_OPTIONS = resolveServerOptions()
 const PORT = SERVER_OPTIONS.port
 const HOST = SERVER_OPTIONS.host
+
+function ensureIsolatedProjectsDir(): void {
+  if (process.env.CC_HAHA_PROJECTS_DIR) return
+  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  process.env.CC_HAHA_PROJECTS_DIR = path.join(configDir, 'cc-haha', 'projects')
+}
+
+ensureIsolatedProjectsDir()
 
 export function startServer(port = PORT, host = HOST) {
   ProviderService.setServerPort(port)

@@ -323,6 +323,8 @@ export function sanitizePath(name: string): string {
 // ---------------------------------------------------------------------------
 
 export function getProjectsDir(): string {
+  const isolatedProjectsDir = process.env.CC_HAHA_PROJECTS_DIR
+  if (isolatedProjectsDir) return isolatedProjectsDir
   return join(getClaudeConfigHomeDir(), 'projects')
 }
 
