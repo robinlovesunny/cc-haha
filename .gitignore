@@ -36,6 +36,9 @@ desktop/brand-assets/
 # Claude local config & auto-generated
 .claude/
 
+# Qoder repowiki output (auto-generated, local only)
+.qoder/
+
 # Superpowers plans & specs (local only)
 docs/superpowers/
 
